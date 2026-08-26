@@ -7,6 +7,9 @@ const parser = new XMLParser({
   parseTagValue: false,
   parseAttributeValue: false,
   trimValues: false,
+  // はてなは本文中のクォートを &#39; のような数値文字参照で返す。
+  // これを有効にしないとデコードされず、再送時に &amp;#39; として二重エスケープされてしまう
+  htmlEntities: true,
   isArray: (name) => ["entry", "category", "link", "collection", "workspace"].includes(name),
   // 変換済み HTML は子要素として解釈させず、生の文字列のまま取り出す
   stopNodes: ["*.hatena:formatted-content"],

@@ -169,3 +169,38 @@ test("buildWsseHeader は WSSE UsernameToken の書式を満たす", () => {
     /^UsernameToken Username="my-id", PasswordDigest="[A-Za-z0-9+/=]+", Nonce="[A-Za-z0-9+/=]+", Created="\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z"$/,
   );
 });
+
+test("数値文字参照をデコードする（10進・16進とも）", () => {
+  const xml = `<?xml version="1.0" encoding="utf-8"?>
+<entry xmlns="http://www.w3.org/2005/Atom" xmlns:app="http://www.w3.org/2007/app">
+  <title>ALTER USER &#39;user&#39;@&#39;%&#39;</title>
+  <link rel="edit" href="https://blog.hatena.ne.jp/u/b.hatenablog.com/atom/entry/1"/>
+  <content type="text/x-markdown">ALTER USER &#39;user&#39;@&#x27;%&#39; RETAIN CURRENT PASSWORD;</content>
+  <app:control><app:draft>yes</app:draft></app:control>
+</entry>`;
+  const entry = parseEntry(xml);
+  assert.equal(entry.title, "ALTER USER 'user'@'%'");
+  assert.equal(entry.content, "ALTER USER 'user'@'%' RETAIN CURRENT PASSWORD;");
+});
+
+test("取得した本文をそのまま送り返しても二重エスケープされない", () => {
+  // update_entry は取得 → 再送する差分更新なので、この往復が壊れると本文が破損する
+  const fetched = `<?xml version="1.0" encoding="utf-8"?>
+<entry xmlns="http://www.w3.org/2005/Atom" xmlns:app="http://www.w3.org/2007/app">
+  <title>t</title>
+  <link rel="edit" href="https://blog.hatena.ne.jp/u/b.hatenablog.com/atom/entry/1"/>
+  <content type="text/x-markdown">--query &#39;{A:B}&#39; &amp;&amp; echo &quot;done&quot;</content>
+  <app:control><app:draft>yes</app:draft></app:control>
+</entry>`;
+  const entry = parseEntry(fetched);
+  assert.equal(entry.content, `--query '{A:B}' && echo "done"`);
+
+  const resent = buildEntryXml({
+    title: entry.title,
+    content: entry.content,
+    updated: "2026-08-26T17:00:00+09:00",
+    draft: entry.draft,
+  });
+  assert.ok(!resent.includes("&amp;#39;"), "数値文字参照が二重エスケープされている");
+  assert.equal(parseEntry(resent).content, `--query '{A:B}' && echo "done"`);
+});

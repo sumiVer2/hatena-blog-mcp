@@ -5,8 +5,9 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { HatenaClient } from "../src/hatena/client.js";
 import { createServer } from "../src/server.js";
 
-const CONFIG = { hatenaId: "u", blogId: "b.hatenablog.com", apiKey: "key" };
-const ROOT = "https://blog.hatena.ne.jp/u/b.hatenablog.com/atom";
+// URL のはてなID（所有者）と認証アカウントが異なる共有ブログの構成
+const CONFIG = { hatenaId: "member", blogOwnerId: "owner", blogId: "b.hatenablog.com", apiKey: "key" };
+const ROOT = "https://blog.hatena.ne.jp/owner/b.hatenablog.com/atom";
 
 interface RecordedRequest {
   method: string;
@@ -28,10 +29,10 @@ function entryXml(options: {
 }): string {
   return `<?xml version="1.0" encoding="utf-8"?>
 <entry xmlns="http://www.w3.org/2005/Atom" xmlns:app="http://www.w3.org/2007/app">
-  <id>tag:blog.hatena.ne.jp,2013:blog-u-1-${options.id}</id>
+  <id>tag:blog.hatena.ne.jp,2013:blog-owner-1-${options.id}</id>
   <link rel="edit" href="${ROOT}/entry/${options.id}"/>
   <link rel="alternate" type="text/html" href="http://b.hatenablog.com/entry/${options.id}"/>
-  <author><name>u</name></author>
+  <author><name>member</name></author>
   <title>${options.title}</title>
   <updated>${options.updated}</updated>
   <published>${options.updated}</published>
@@ -148,12 +149,14 @@ test("記事ツールにはカテゴリがあり、固定ページツールに�
   assert.ok(properties("update_page").includes("page_id"));
 });
 
-test("全リクエストに WSSE 認証ヘッダが付く", async () => {
+test("URL は所有者、WSSE 認証は操作者のアカウントを使う", async () => {
   const client = await connect();
   await client.callTool({ name: "get_entry", arguments: { entry_id: "111" } });
 
   assert.equal(requests.length, 1);
-  assert.match(requests[0]!.wsse!, /^UsernameToken Username="u", PasswordDigest="/);
+  // 共有ブログでは所有者と操作者が異なる
+  assert.equal(requests[0]!.url, "https://blog.hatena.ne.jp/owner/b.hatenablog.com/atom/entry/111");
+  assert.match(requests[0]!.wsse!, /^UsernameToken Username="member", PasswordDigest="/);
 });
 
 test("update_entry は取得してから差分だけを送る", async () => {

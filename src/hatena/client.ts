@@ -31,7 +31,8 @@ export class HatenaClient {
   private readonly rootUrl: string;
 
   constructor(private readonly config: HatenaConfig) {
-    this.rootUrl = `https://blog.hatena.ne.jp/${encodeURIComponent(config.hatenaId)}/${encodeURIComponent(config.blogId)}/atom`;
+    // URL のはてなID部分はブログ所有者、認証は操作者のアカウントで行う
+    this.rootUrl = `https://blog.hatena.ne.jp/${encodeURIComponent(config.blogOwnerId)}/${encodeURIComponent(config.blogId)}/atom`;
   }
 
   private async request(method: string, url: string, body?: string): Promise<string> {

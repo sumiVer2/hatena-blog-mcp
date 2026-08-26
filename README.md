@@ -12,14 +12,25 @@ AI エージェントから記事の下書き・推敲・公開を扱えるよ�
 pnpm install   # 依存のインストールと同時に prepare で dist がビルドされる
 ```
 
-### API キーの取得
+### 設定値の取得
 
-はてなブログの **[設定] > [詳細設定] > [AtomPub]** から「ルートエンドポイント」と「API キー」を確認する。
+はてなブログの **[設定] > [詳細設定] > [AtomPub]** に「ルートエンドポイント」と「API キー」が表示される。
+ルートエンドポイントは次の形式になっている。
 
-- `HATENA_ID`: ルートエンドポイントの `https://blog.hatena.ne.jp/{はてなID}/...` の部分
-- `HATENA_BLOG_ID`: 同じく `{ブログID}` の部分（例: `tech.example.hatenablog.com`）
-  - 有料プランで独自ドメインを使っている場合も、**独自ドメイン設定前のドメイン**を指定する
-- `HATENA_API_KEY`: API キー
+```
+https://blog.hatena.ne.jp/{ブログ所有者のはてなID}/{ブログID}/atom
+```
+
+| 環境変数 | 必須 | 値 |
+| --- | --- | --- |
+| `HATENA_ID` | ○ | **認証に使うアカウント**のはてなID（API キーの持ち主） |
+| `HATENA_BLOG_ID` | ○ | ルートエンドポイントの `{ブログID}` の部分（例: `tech.example.hatenablog.com`） |
+| `HATENA_API_KEY` | ○ | API キー |
+| `HATENA_BLOG_OWNER_ID` | | ルートエンドポイントの `{ブログ所有者のはてなID}` の部分。**省略時は `HATENA_ID`** |
+
+- **自分が所有するブログ**なら所有者と操作者が同じなので、`HATENA_BLOG_OWNER_ID` は不要
+- **共有ブログ**（会社のテックブログなど）では、所有者と操作者が異なる。この場合は `HATENA_BLOG_OWNER_ID` にブログ所有者の ID を、`HATENA_ID` には自分のアカウントを指定する
+- 有料プランで独自ドメインを使っている場合も、`HATENA_BLOG_ID` は**独自ドメイン設定前のドメイン**を指定する
 
 `.env.example` を参照。
 
@@ -28,12 +39,23 @@ pnpm install   # 依存のインストールと同時に prepare で dist がビ
 Claude Code の場合:
 
 ```bash
-claude mcp add hatena-blog \
-  --env HATENA_ID=your-hatena-id \
-  --env HATENA_BLOG_ID=your-blog.hatenablog.com \
-  --env HATENA_API_KEY=your-api-key \
-  -- node /absolute/path/to/tech-blog/dist/index.js
+# 自分が所有するブログ
+claude mcp add hatena-blog -s user \
+  -e HATENA_ID=your-hatena-id \
+  -e HATENA_BLOG_ID=your-blog.hatenablog.com \
+  -e HATENA_API_KEY=your-api-key \
+  -- node /absolute/path/to/hatena-blog-mcp/dist/index.js
+
+# 共有ブログ（所有者と操作者が異なる場合は HATENA_BLOG_OWNER_ID を足す）
+claude mcp add hatena-blog -s user \
+  -e HATENA_ID=your-hatena-id \
+  -e HATENA_BLOG_OWNER_ID=blog-owner-id \
+  -e HATENA_BLOG_ID=blog-owner-id.hatenablog.com \
+  -e HATENA_API_KEY=your-api-key \
+  -- node /absolute/path/to/hatena-blog-mcp/dist/index.js
 ```
+
+`-s user` を付けると全プロジェクトで使える。**`-s project` は使わないこと**（`.mcp.json` に API キーが書き出される）。
 
 設定ファイルに直接書く場合:
 
@@ -45,7 +67,8 @@ claude mcp add hatena-blog \
       "args": ["/absolute/path/to/tech-blog/dist/index.js"],
       "env": {
         "HATENA_ID": "your-hatena-id",
-        "HATENA_BLOG_ID": "your-blog.hatenablog.com",
+        "HATENA_BLOG_OWNER_ID": "blog-owner-id",
+        "HATENA_BLOG_ID": "blog-owner-id.hatenablog.com",
         "HATENA_API_KEY": "your-api-key"
       }
     }
@@ -114,14 +137,26 @@ AtomPub の `PUT` は「送った内容で全体を置き換える」ため、�
 
 ### 一覧のページング
 
-はてなブログの API は 1 ページあたりの件数が少ない（記事は 7 件、固定ページは 10 件）。
+はてなブログの API は 1 ページあたりの件数が少なく、件数は API 側で決まる
+（公式ドキュメントは記事 7 件と記載しているが、実際には 10 件返ることを確認している）。
 `list_entries` は 1 ページ分を返し、`next_page` を次の呼び出しの `page` に渡すと続きが取れる。
 まとめて探したいときは、内部でページを辿る `search_entries` を使う。`max_pages` で走査量を制御する。
 
-### 認証
+### 認証と、URL のはてなID
 
 WSSE 認証（`X-WSSE` ヘッダ）を使う。リクエストごとに Nonce と Created を生成し、
 `Base64(SHA1(Nonce + Created + APIキー))` を PasswordDigest として送る。
+
+**エンドポイント URL のはてなID（ブログ所有者）と、認証するアカウントは別物**である点に注意。
+API キーはブログ単位ではなくアカウント単位で発行されるため、共有ブログでは
+
+- URL: `https://blog.hatena.ne.jp/{所有者のID}/{ブログID}/atom`
+- 認証: 自分のアカウントの はてなID + API キー
+
+という組み合わせになる。両者を混同すると 401（キーが所有者のものでない）や
+403（そのアカウントにブログの権限がない）になる。
+このサーバーは `HATENA_BLOG_OWNER_ID` と `HATENA_ID` で両者を分離しており、
+省略時は同一 ID として扱うので、自分のブログでも共有ブログでも同じ設定方法で動く。
 
 ### スコープ外
 

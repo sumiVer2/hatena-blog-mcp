@@ -5,7 +5,7 @@
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json",
     "dev": "tsx src/index.ts",
     "inspect": "pnpm dlx @modelcontextprotocol/inspector tsx src/index.ts",
     "test": "tsx --test test/*.test.ts",

@@ -167,12 +167,15 @@ API キーはブログ単位ではなくアカウント単位で発行される�
 ## 開発
 
 ```bash
-pnpm run typecheck   # 型チェック
+pnpm run typecheck   # 型チェック（src とテストコード）
 pnpm test            # ユニットテスト（API はモック）
 pnpm run build       # dist へビルド
 pnpm run dev         # ビルドせずに起動
 pnpm run inspect     # MCP Inspector で手動確認
 ```
+
+PR と main への push では、GitHub Actions（`.github/workflows/ci.yml`）が typecheck・テスト・ビルドを実行する。
+テストは API をモックしているため、はてなの API キーなどのシークレットは不要。
 
 pnpm 10 は依存のビルドスクリプトを既定でブロックするため、`tsx` が使う `esbuild` だけを
 `package.json` の `pnpm.onlyBuiltDependencies` で許可している。

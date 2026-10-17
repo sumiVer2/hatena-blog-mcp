@@ -1,6 +1,6 @@
 # hatena-blog-mcp
 
-はてなブログの記事を作成・更新するための MCP サーバー。
+はてなブログの記事を作成・更新するための MCP サーバー。記事に使う画像のアップロード（はてなフォトライフ）にも対応する。
 [はてなブログ AtomPub API](https://developer.hatena.ne.jp/ja/documents/blog/apis/atom) を薄くラップし、
 AI エージェントから記事の下書き・推敲・公開を扱えるようにする。
 
@@ -103,6 +103,12 @@ claude mcp add hatena-blog -s user \
 **固定ページははてなブログの有料プランでのみ利用できる**（無料プランでは 404 が返る）。
 固定ページはカテゴリを持たないため、`categories` パラメータはない。
 
+### 画像
+
+| ツール | 説明 |
+| --- | --- |
+| `upload_image` | ローカルの画像（PNG / JPEG / GIF）をはてなフォトライフに上げ、本文に貼れる記法（`embed`）を返す |
+
 ## 設計上の決めごと
 
 ### 削除は実装しない
@@ -158,9 +164,22 @@ API キーはブログ単位ではなくアカウント単位で発行される�
 このサーバーは `HATENA_BLOG_OWNER_ID` と `HATENA_ID` で両者を分離しており、
 省略時は同一 ID として扱うので、自分のブログでも共有ブログでも同じ設定方法で動く。
 
+### 画像はフォトライフに上げる
+
+ブログの AtomPub には画像を扱う API がないため、`upload_image` は
+[はてなフォトライフ AtomAPI](https://developer.hatena.ne.jp/ja/documents/fotolife/apis/atom)（`POST https://f.hatena.ne.jp/atom/post`）を使う。
+認証はブログと同じ WSSE で、同じ `HATENA_ID` と API キーがそのまま使える。
+
+- 画像は**認証アカウント（`HATENA_ID`）のフォトライフ**に保存される。共有ブログでも所有者のフォトライフではない（ブラウザの編集画面から上げた場合と同じ）
+- 保存先フォルダの既定は、編集画面と同じ `Hatena Blog`
+- 返り値の `embed`（例: `[f:id:user:20261017120000p:plain]`）を本文に書くと画像が表示される。編集画面が挿入するのと同じ `:plain` 形式にしている。これは Markdown・はてな記法の編集モード向けで、見たままモードのブログでは `imageUrl` を `<img>` で使う
+- 画像かどうかは拡張子ではなく**ファイル先頭のシグネチャ**で判定する（PNG / JPEG / GIF）。名前だけ `.png` にした画像以外のファイルを、公開されるフォトライフに送らないため
+- 20MB を超えるファイルは読み込む前に弾く。フォトライフ側の上限ではなく、誤って巨大なファイルを渡したときにメモリを使い切らないための安全弁
+- フォトライフの画像は URL を知っていれば誰でも見られる。社外に出してよい画像だけを上げる
+- 画像の削除はツールにしていない（記事と同じく、取り消せない操作はブラウザから行う）
+
 ### スコープ外
 
-- **画像のアップロード**: AtomPub の範囲外（[はてなフォトライフ API](https://developer.hatena.ne.jp/ja/documents/fotolife/apis/atom) が別にある）
 - **固定ページのレイアウト変更**: API 非対応。ブラウザから設定する
 - **OAuth 認証**: API キーによる WSSE 認証のみ対応
 
@@ -185,13 +204,15 @@ src/
   server.ts         McpServer の組み立て
   config.ts         環境変数の読み込み
   hatena/
-    client.ts       AtomPub の HTTP クライアント
+    client.ts       AtomPub・フォトライフの HTTP クライアント
     wsse.ts         WSSE 認証ヘッダの生成
     atom.ts         Atom XML のパース・生成
+    fotolife.ts     はてなフォトライフの投稿 XML の生成とレスポンスのパース
     types.ts        ドメイン型
   tools/
     blog.ts         ブログ全体に対するツール
     collection.ts   記事・固定ページ共通のツール定義
+    image.ts        画像アップロードのツール
     shared.ts       ツールの共通ヘルパー
 ```
 

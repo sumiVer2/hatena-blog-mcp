@@ -6,14 +6,19 @@ import {
   parseFeed,
   parseServiceDocument,
 } from "./atom.js";
+import { buildImageEntryXml, parseImageEntry } from "./fotolife.js";
 import type {
   BlogInfo,
   CollectionKind,
   EntryInput,
   EntryList,
   HatenaEntry,
+  UploadedImage,
+  UploadImageInput,
 } from "./types.js";
 import { buildWsseHeader } from "./wsse.js";
+
+const FOTOLIFE_POST_URL = "https://f.hatena.ne.jp/atom/post";
 
 export class HatenaApiError extends Error {
   constructor(
@@ -22,7 +27,7 @@ export class HatenaApiError extends Error {
     readonly url: string,
     readonly body: string,
   ) {
-    super(`はてなブログ API エラー ${status} (${method} ${url})\n${body.slice(0, 1000)}`);
+    super(`はてな API エラー ${status} (${method} ${url})\n${body.slice(0, 1000)}`);
     this.name = "HatenaApiError";
   }
 }
@@ -35,13 +40,18 @@ export class HatenaClient {
     this.rootUrl = `https://blog.hatena.ne.jp/${encodeURIComponent(config.blogOwnerId)}/${encodeURIComponent(config.blogId)}/atom`;
   }
 
-  private async request(method: string, url: string, body?: string): Promise<string> {
+  private async request(
+    method: string,
+    url: string,
+    body?: string,
+    contentType = "application/atom+xml;type=entry",
+  ): Promise<string> {
     const response = await fetch(url, {
       method,
       headers: {
         "X-WSSE": buildWsseHeader(this.config.hatenaId, this.config.apiKey),
         Accept: "application/x.atom+xml, application/atom+xml, application/xml, text/xml, */*",
-        ...(body ? { "Content-Type": "application/atom+xml;type=entry" } : {}),
+        ...(body ? { "Content-Type": contentType } : {}),
       },
       body,
     });
@@ -97,6 +107,15 @@ export class HatenaClient {
   async update(kind: CollectionKind, entryId: string, input: EntryInput): Promise<HatenaEntry> {
     const xml = await this.request("PUT", this.memberUrl(kind, entryId), buildEntryXml(input));
     return parseEntry(xml);
+  }
+
+  /**
+   * はてなフォトライフに画像を投稿する。ブログとは別サービスだが、同じアカウントの WSSE 認証で使える。
+   * 画像は認証アカウント（hatenaId）のフォトライフに保存される。
+   */
+  async uploadImage(input: UploadImageInput): Promise<UploadedImage> {
+    const xml = await this.request("POST", FOTOLIFE_POST_URL, buildImageEntryXml(input), "application/x.atom+xml");
+    return parseImageEntry(xml);
   }
 
   /**

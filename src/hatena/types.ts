@@ -63,3 +63,24 @@ export interface BlogInfo {
   title: string;
   collections: Array<{ title: string; href: string; accept: string | null }>;
 }
+
+/** はてなフォトライフへの画像アップロードで指定する項目 */
+export interface UploadImageInput {
+  title: string;
+  data: Buffer;
+  contentType: string;
+  /** 保存先のフォルダ名。存在しなければフォトライフ側で作られる */
+  folder: string;
+}
+
+export interface UploadedImage {
+  /** フォトライフが返すはてな記法（例: f:id:user:20261017120000p:image） */
+  syntax: string;
+  /** 記事本文にそのまま貼れる形（例: [f:id:user:20261017120000p:plain]） */
+  embed: string;
+  imageUrl: string | null;
+  imageUrlSmall: string | null;
+  /** フォトライフ上の画像ページ */
+  pageUrl: string | null;
+  editUrl: string | null;
+}

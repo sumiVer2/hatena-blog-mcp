@@ -15,7 +15,12 @@ const parser = new XMLParser({
   stopNodes: ["*.hatena:formatted-content"],
 });
 
-type XmlNode = Record<string, any>;
+export type XmlNode = Record<string, any>;
+
+/** はてなの API が返す XML をパースする（ブログ・フォトライフ共通） */
+export function parseXml(xml: string): XmlNode {
+  return parser.parse(xml);
+}
 
 function text(node: unknown): string | null {
   if (node == null) return null;
@@ -27,7 +32,7 @@ function text(node: unknown): string | null {
   return null;
 }
 
-function trimmed(node: unknown): string | null {
+export function trimmed(node: unknown): string | null {
   return text(node)?.trim() ?? null;
 }
 
@@ -35,7 +40,7 @@ function isYes(node: unknown): boolean {
   return trimmed(node) === "yes";
 }
 
-function findLink(entry: XmlNode, rel: string): string | null {
+export function findLink(entry: XmlNode, rel: string): string | null {
   const links: XmlNode[] = entry.link ?? [];
   const match = links.find((link) => link["@_rel"] === rel);
   return match?.["@_href"] ?? null;
@@ -135,7 +140,7 @@ export function parseServiceDocument(xml: string): BlogInfo {
   };
 }
 
-function escapeXml(value: string): string {
+export function escapeXml(value: string): string {
   return value
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")

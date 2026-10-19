@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, test } from "node:test";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { HatenaClient } from "../src/hatena/client.js";
@@ -14,6 +17,7 @@ interface RecordedRequest {
   url: string;
   body: string | null;
   wsse: string | null;
+  contentType: string | null;
 }
 
 let requests: RecordedRequest[] = [];
@@ -54,8 +58,24 @@ const EXISTING_ENTRY = {
   updated: "2026-08-01T10:00:00+09:00",
 };
 
-/** はてなブログ AtomPub を模したレスポンスを返す */
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
+const FOTOLIFE_RESPONSE = `<?xml version="1.0" encoding="utf-8"?>
+<entry xmlns="http://purl.org/atom/ns#" xmlns:hatena="http://www.hatena.ne.jp/info/xmlns#">
+  <title>trace.png</title>
+  <link rel="alternate" type="text/html" href="https://f.hatena.ne.jp/member/20261017120000"/>
+  <link rel="service.edit" type="application/x.atom+xml" href="https://f.hatena.ne.jp/atom/edit/20261017120000" title="trace.png"/>
+  <id>tag:hatena.ne.jp,2005:fotolife-member-20261017120000</id>
+  <hatena:imageurl>https://cdn-ak.f.st-hatena.com/images/fotolife/m/member/20261017/20261017120000.png</hatena:imageurl>
+  <hatena:imageurlsmall>https://cdn-ak.f.st-hatena.com/images/fotolife/m/member/20261017/20261017120000_m.png</hatena:imageurlsmall>
+  <hatena:syntax>f:id:member:20261017120000p:image</hatena:syntax>
+</entry>`;
+
+/** はてなブログ AtomPub とはてなフォトライフを模したレスポンスを返す */
 function fakeHatena(url: string, method: string): { status: number; body: string } {
+  if (method === "POST" && url === "https://f.hatena.ne.jp/atom/post") {
+    return { status: 201, body: FOTOLIFE_RESPONSE };
+  }
   if (method === "GET" && url === `${ROOT}/entry/111`) {
     return { status: 200, body: entryXml(EXISTING_ENTRY) };
   }
@@ -94,6 +114,7 @@ beforeEach(() => {
       url,
       body: (init?.body as string | undefined) ?? null,
       wsse: (init?.headers as Record<string, string> | undefined)?.["X-WSSE"] ?? null,
+      contentType: (init?.headers as Record<string, string> | undefined)?.["Content-Type"] ?? null,
     });
     const { status, body } = fakeHatena(url, method);
     return new Response(body, { status });
@@ -133,6 +154,7 @@ test("削除ツールは公開されていない", async () => {
     "search_pages",
     "update_entry",
     "update_page",
+    "upload_image",
   ]);
   assert.ok(!names.some((name) => name.includes("delete")));
 });
@@ -231,4 +253,65 @@ test("API エラーはステータス付きのエラー結果になる", async (
 
   assert.equal((result as { isError?: boolean }).isError, true);
   assert.match(firstText(result), /404/);
+});
+
+test("upload_image は画像を base64 でフォトライフに送り、本文に貼れる記法を返す", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "hatena-blog-mcp-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const filePath = join(dir, "trace.png");
+  await writeFile(filePath, PNG_SIGNATURE);
+
+  const client = await connect();
+  const result = await client.callTool({ name: "upload_image", arguments: { file_path: filePath } });
+  const payload = JSON.parse(firstText(result));
+
+  assert.equal(payload.embed, "[f:id:member:20261017120000p:plain]");
+  assert.equal(payload.syntax, "f:id:member:20261017120000p:image");
+
+  const [request] = requests;
+  assert.equal(request!.method, "POST");
+  assert.equal(request!.url, "https://f.hatena.ne.jp/atom/post");
+  // フォトライフは認証アカウント（操作者）のもの。ブログ所有者ではない
+  assert.match(request!.wsse!, /Username="member"/);
+  assert.equal(request!.contentType, "application/x.atom+xml");
+  assert.match(request!.body!, /<content mode="base64" type="image\/png">iVBORw0KGgo=<\/content>/);
+  assert.match(request!.body!, /<title>trace\.png<\/title>/);
+  assert.match(request!.body!, /<dc:subject>Hatena Blog<\/dc:subject>/);
+});
+
+test("upload_image は空のタイトル・フォルダを既定値に置き換える", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "hatena-blog-mcp-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const filePath = join(dir, "trace.png");
+  await writeFile(filePath, PNG_SIGNATURE);
+
+  const client = await connect();
+  await client.callTool({ name: "upload_image", arguments: { file_path: filePath, title: " ", folder: "" } });
+
+  assert.match(requests[0]!.body!, /<title>trace\.png<\/title>/);
+  assert.match(requests[0]!.body!, /<dc:subject>Hatena Blog<\/dc:subject>/);
+});
+
+test("upload_image は画像でないファイル・ディレクトリ・相対パスを送信前に弾く", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "hatena-blog-mcp-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  // 拡張子だけ .png にした画像以外のファイル
+  const disguised = join(dir, "secret.png");
+  await writeFile(disguised, "-----BEGIN OPENSSH PRIVATE KEY-----");
+
+  const client = await connect();
+
+  const notImage = await client.callTool({ name: "upload_image", arguments: { file_path: disguised } });
+  assert.equal((notImage as { isError?: boolean }).isError, true);
+  assert.match(firstText(notImage), /画像ファイルではない/);
+
+  const directory = await client.callTool({ name: "upload_image", arguments: { file_path: dir } });
+  assert.equal((directory as { isError?: boolean }).isError, true);
+  assert.match(firstText(directory), /通常のファイルではありません/);
+
+  const relative = await client.callTool({ name: "upload_image", arguments: { file_path: "trace.png" } });
+  assert.equal((relative as { isError?: boolean }).isError, true);
+  assert.match(firstText(relative), /絶対パス/);
+
+  assert.equal(requests.length, 0);
 });

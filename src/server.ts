@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { HatenaClient } from "./hatena/client.js";
 import { registerBlogTools } from "./tools/blog.js";
 import { ENTRY_SPEC, PAGE_SPEC, registerCollectionTools } from "./tools/collection.js";
+import { registerImageTools } from "./tools/image.js";
 
 const INSTRUCTIONS = [
   "はてなブログの記事を AtomPub API 経由で作成・更新するためのサーバー。",
@@ -9,6 +10,7 @@ const INSTRUCTIONS = [
   "update_entry は差分更新で、省略した項目は現在の値が維持される。",
   "新規作成は既定で下書きになる。公開・予約投稿はユーザーの明示的な指示があるときだけ行うこと。",
   "削除は意図的にサポートしていない。",
+  "画像は upload_image ではてなフォトライフに上げ、返った embed を本文に書く。社外に出してよい画像だけを上げること。",
 ].join("");
 
 export function createServer(client: HatenaClient): McpServer {
@@ -20,6 +22,7 @@ export function createServer(client: HatenaClient): McpServer {
   registerBlogTools(server, client);
   registerCollectionTools(server, client, ENTRY_SPEC);
   registerCollectionTools(server, client, PAGE_SPEC);
+  registerImageTools(server, client);
 
   return server;
 }
